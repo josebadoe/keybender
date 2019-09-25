@@ -7,6 +7,7 @@ import functools
 import numbers
 import time, datetime
 import select
+import os
 from collections import namedtuple
 from contextlib import contextmanager
 
@@ -299,7 +300,9 @@ class KnoX:
     FrameExtents = namedtuple("FrameExtents", "left right top bottom")
 
     def __init__(self):
+        #self.display = Display(os.environ.get("DISPLAY", ":0.0"))
         self.display = Display()
+        print("Connected to X DISPLAY %r" % self.display.get_display_name())
         self.display.set_error_handler(self.knox_error_handler)
         self.screen = self.display.screen()
         self.root = self.screen.root
@@ -742,7 +745,7 @@ class KnoX:
     @property
     def supported_properties(self):
         if self._supported_properties is None:
-            self._supported_properties = self.get_prop(self.root, "_NET_SUPPORTED")
+            self._supported_properties = self.get_prop(self.root, "_NET_SUPPORTED") or []
         return self._supported_properties
 
 
@@ -755,7 +758,7 @@ class KnoX:
 
     def get_client_window(self, window):
         win_id = window.id
-        for tlw in self.toplevel_windows() or []:
+        for tlw in self.toplevel_windows():
             for (_, parent, _) in self.window_tree(
                     tlw, filter=lambda w, parent, level: w.id == win_id):
                 return tlw
@@ -765,11 +768,17 @@ class KnoX:
     def toplevel_windows(self, id_only=False):
         name = self.atom("_NET_CLIENT_LIST", only_if_exists=True)
         if name in self.supported_properties:
-            lst = self.get_prop(self.root, name) or []
+            lst = self.get_prop(self.root, name)
             if id_only:
                 return lst
             else:
                 return list(map(lambda win_id: self.get_window(win_id), lst))
+        else:
+            print("BELGENGOC")
+            if id_only:
+                return list(map(lambda w: w.id, self.root.query_tree().children))
+            else:
+                return list(self.root.query_tree().children)
 
 
     def window_tree(self, parent=None, level=1, filter=None):
