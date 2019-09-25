@@ -725,9 +725,11 @@ class WindowFinder:
     def get_name(self, window):
         return self.config.knox.get_wm_name(window)
     def get_class(self, window):
-        return window.get_wm_class()[-1]
+        cls = window.get_wm_class()
+        return cls[-1] if cls else None
     def get_instance(self, window):
-        return window.get_wm_class()[0]
+        cls = window.get_wm_class()
+        return cls[0] if cls else None
 
     def get_pid(self, window):
         return str(self.config.knox.get_wm_pid(window))
