@@ -272,6 +272,7 @@ class Consultant:
             'key': self.send_keys,
             'send_keys': self.send_keys,
             'desktop': self.show_desktop,
+            'display_count': self.display_count
         }
 
     def incoming(self, lines, responder=None):
@@ -314,10 +315,12 @@ class Consultant:
         # TODO: WxH, pero tambien *Wx*H para multiplos (float) del workarea
         # size. accepto ! after numbers (position and size) for using screen
         # space instead of workarea
-        m = re.match(r'^\s*(?P<win_id>\d+)\s*'
-                     r'((?P<w_op>[*]\s*)?(?P<width>[.\d]+)\s*(?P<sz_selector_w>[!])?'
+        m = re.match(r'^\s*(?P<win_id>\d+)\s+'
+                     r'('
+                     r'(?P<w_op>[*]\s*)?(?P<width>[.\d]+)\s*(?P<sz_selector_w>[!])?'
                      r'\s*x\s*'
-                     r'((?P<h_op>[*]\s*)?(?P<height>[.\d]+)\s*(?P<sz_selector_h>[!])?))?'
+                     r'((?P<h_op>[*]\s*)?(?P<height>[.\d]+)\s*(?P<sz_selector_h>[!])?)'
+                     r')?'
                      r'('
                      r'\s*(?P<x_sign>[+-]\s*)(?P<x>\d+)\s*(?P<sz_selector_x>[!])?'
                      r'\s*(?P<y_sign>[+-]\s*)(?P<y>\d+)\s*(?P<sz_selector_y>[!])?'
@@ -331,6 +334,7 @@ class Consultant:
         ra = self.config.knox.get_geometry(self.config.knox.root)
         w = self.config.knox.get_geometry(win_id)
         f = self.config.knox.get_frame_extents(win_id)
+        print("GEOMETRYCA: workarea %r, window %r, frame %r" % (wa, w, f))
 
         if m['width']:
             sz = ra if m['sz_selector_w'] and m['sz_selector_w'] == '!' else wa
@@ -348,13 +352,17 @@ class Consultant:
         if m['x']:
             sz = ra if m['sz_selector_x'] and m['sz_selector_x'] == '!' else wa
             if m['x_sign'] and m['x_sign'].startswith('-'):
-                args['x'] = sz.width - (args.get('width', w.width) + int(m['x']) + f.left + f.right)
+                args['x'] = sz.width - args.get('width', w.width) - int(m['x'])
+                #args['x'] = sz.width - (args.get('width', w.width) + int(m['x']) + f.left + f.right)
             else:
                 args['x'] = sz.x + int(m['x'])
         if m['y']:
             sz = ra if m['sz_selector_y'] and m['sz_selector_y'] == '!' else wa
             if m['y_sign'] and m['y_sign'].startswith('-'):
-                args['y'] = sz.height - (args.get('height', w.height) + int(m['y']) - f.top + f.bottom)
+                # top and bottom seem to be included already
+                #args['y'] = sz.height - (args.get('height', w.height) + f.top + f.bottom) + int(m['y'])
+                args['y'] = sz.height - args.get('height', w.height) - int(m['y'])
+
             else:
                 args['y'] = sz.y + int(m['y'])
 
@@ -436,6 +444,9 @@ class Consultant:
             k = Key(self.config.knox, descr, origin="incoming command key:%r" % s)
             self.config.knox.send_key(window_id, k.keysym, k.modifiers)
         self.config.knox.flush()
+
+    def display_count(self, s):
+        return "display_count %d" % self.config.knox.display_count
 
 
 class ConsultCommandAction(Action):
@@ -554,6 +565,7 @@ class WindowSelector(Action):
         if 'wait' not in self.section:
             return
         for s in self.section['wait'].split(';'):
+            s = s.strip()
             m = re.match(
                 r'^(?P<time>\d+)s\s+for\s+(?P<list>{name_chars}+)\s*$'
                 .format(name_chars=Config.name_chars), s)
@@ -734,6 +746,17 @@ class WindowFinder:
     def get_pid(self, window):
         return str(self.config.knox.get_wm_pid(window))
 
+    def get_type(self, window):
+        type_details = self.config.knox.get_window_type(window)
+        separator = "."
+        if type_details is not None:
+            types = list(type_details)
+            types.sort()
+            # separator char on both sides should help to avoid false matches
+            return separator + separator.join(types) + separator
+        else:
+            return "?"
+
     class MatchAll:
         def __init__(self, finder, *matchers):
             self.matchers = list(matchers)
@@ -767,7 +790,8 @@ class WindowFinder:
             'name': self.get_name,
             'class': self.get_class,
             'instance': self.get_instance,
-            'pid': self.get_pid
+            'pid': self.get_pid,
+            'type': self.get_type,
         }
 
         if 'title' in section and 'name' in section:
@@ -899,25 +923,28 @@ class Waiter(Listener):
 class Config:
     name_chars=r'[-\w$]'
 
-    def __init__(self, knox, filename, event_loop, extra_options=None):
+    def __init__(self, knox, filename, event_loop, extra_options=None, add_env=True):
         self.knox = knox
         self.event_loop = event_loop
         self.config = configparser.ConfigParser(
             interpolation=configparser.ExtendedInterpolation())
         self.config.add_section("env")
-        for (name, value) in os.environ.items():
-            self.config["env"][name] = value
         self.extra_options = dict()
-        for (name, value) in extra_options.items():
-            parts = name.split(':', maxsplit=1)
-            if len(parts) == 1:
-                self.extra_options[("cfg", parts[0])] = value
-            else:
-                self.extra_options[(parts[0], parts[1])] = value
+        if extra_options:
+            for (name, value) in extra_options.items():
+                if isinstance(name, tuple):
+                    self.extra_options[name] = value
+                else:
+                    parts = name.split(':', maxsplit=1)
+                    if len(parts) == 1:
+                        self.extra_options[("cfg", parts[0])] = value
+                    else:
+                        self.extra_options[(parts[0], parts[1])] = value
 
         self.config.read(filename)
         self.add_extra_options(self.extra_options)
-        self.add_extra_options(os.environ, section="env")
+        if add_env:
+            self.add_extra_options(os.environ, section="env")
 
         self.waiters = dict()
         self.actions = dict()
@@ -941,7 +968,8 @@ class Config:
         return not (os.stat(self.config_file).st_mtime == self.config_id)
 
     def reload(self):
-        return Config(self.knox, self.config_file, self.event_loop)
+        return Config(self.knox, self.config_file, self.event_loop,
+                      extra_options=self.extra_options, add_env=False)
 
 
     def waiter(self, name):
