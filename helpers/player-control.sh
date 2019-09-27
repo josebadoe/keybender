@@ -33,9 +33,9 @@ if [[ -n "$google_music" ]]; then
     break
   done
 
-  echo "activate:$google_music" && confirm &&
+  echo "activate: $google_music" && confirm &&
     echo "send_keys: $google_music space" && confirm &&
-    echo "restore_state:$state" && confirm
+    echo "restore_state: $state" && confirm
     # xdotool \
     #   key --window $google_music --clearmodifiers space
 
