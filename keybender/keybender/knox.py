@@ -1,6 +1,7 @@
 from Xlib.display import Display
 from Xlib import protocol, error
 from Xlib import X, XK, Xatom, Xutil
+from Xlib.ext import randr
 from array import array
 import itertools
 import functools
@@ -875,6 +876,21 @@ class KnoX:
             window = self.get_window(window)
         return window.get_attributes()
 
+    def get_window_type(self, window):
+        e = self.get_prop(window, "_NET_WM_WINDOW_TYPE")
+        if e is None:
+            return None
+        type_details = set()
+        prefix = "_NET_WM_WINDOW_TYPE_"
+        for t in e:
+            if not t:
+                continue
+            s = self.atom_name(t)
+            if s.startswith(prefix):
+                s = s[len(prefix):]
+            type_details.add(s)
+        return type_details
+
     def get_frame_extents(self, window):
         # x, y, width, height
         if isinstance(window, int):
@@ -900,7 +916,6 @@ class KnoX:
             f = self.get_frame_extents(window)
             wa = self.usable_workarea()
 
-            print("GEOMETRY: workarea %r, window %r, frame %r" % (wa, gw, f))
             if 'x' in data and data['x'] < 0:
                 data['x'] = wa.width - gw.width - (f.left + f.right) + data['x'] + 1
             else:
@@ -972,29 +987,14 @@ class KnoX:
         # flush and make sure everything is handled and processed or rejected by the server
         self.display.sync()
 
-#     def send_key(self, emulated_key):
-#         shift_mask = 0  # or Xlib.X.ShiftMask
-#         window = self.display.get_input_focus()._data["focus"]
-#         keysym = XK.string_to_keysym(emulated_key)
-#         keycode = self.display.keysym_to_keycode(keysym)
-#         event = protocol.event.KeyPress(
-#             time=int(time.time()),
-#             root=self.root,
-#             window=window,
-#             same_screen=0, child=X.NONE,
-#             root_x=0, root_y=0, event_x=0, event_y=0,
-#             state=shift_mask,
-#             detail=keycode)
-#         )
-#         window.send_event(event, propagate=True)
-#         event = protocol.event.KeyRelease(
-#             time=int(time.time()),
-#             root=self.display.screen().root,
-#             window=window,
-#             same_screen=0, child=X.NONE,
-#             root_x=0, root_y=0, event_x=0, event_y=0,
-#             state=shift_mask,
-#             detail=keycode
-#         )
-#         window.send_event(event, propagate=True)
-# Example 5
+
+    @property
+    def display_count(self):
+        res = randr.get_screen_resources(self.root)
+        n = 0
+        for i in res.outputs:
+            o = randr.get_output_info(self.root, i, config_timestamp=0)
+            if o.modes:
+                # has modes, empty if there's no monitor connected here
+                n += 1
+        return n
