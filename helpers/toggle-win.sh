@@ -3,7 +3,10 @@
 NAME=${0##*/}
 function usage {
 	cat <<EOF
-${NAME} [option]... windows focused-window
+${NAME} [option]... [windows] focused-window
+
+If only the focused-window is specified, the window list will be build from this
+single element.
 
 Options:
   -r --run=CMD          Command to run if no window found
@@ -12,15 +15,18 @@ Options:
                         executed process.
   -m --minimize         Minimize focused window if it's one of the windows list
   -M --maximize         Maximize focused window if it's one of the windows list
+  -g --geometry         Set geometry of the focused window if it's one of the windows list"
   -c --close            Gracefully close focused window if it's one of the windows list
   -F --fullscreen       Toggle fullscreen
   -h --help             Display this help and exit.
+  -k --key=KEYS         Send these keys to the focused window if it's one of the window list
+  -A --activate         Activate the specified (probablye single) window
 EOF
 }
 
 ARGS=$(getopt --name="$NAME" \
-			  --options=r:a:mMcfg:w:h \
-			  --longoptions=run,action,minimize,maximize,close,fullscreen,geometry,window,help -- "$@")
+			  --options=r:a:mMcfg:w:k:Ah \
+			  --longoptions=run,action,minimize,maximize,close,fullscreen,geometry:,window:,keys:,activate,help -- "$@")
 if [ $? -ne 0 ]; then
     echo "Try $NAME --help for more information." >&2
     exit 1
@@ -29,10 +35,11 @@ fi
 eval set -- $ARGS
 
 run=""
-op="minimize"
+ops=""
 action=""
 geometry=""
-window_select=""
+window_selector=""
+keys=""
 
 confirm() {
   expect="$1"
@@ -56,19 +63,24 @@ while [[ "$DONE" == false ]]; do
       shift
       exit 0
       ;;
+    -A|--activate)
+      ops="$ops activate"
+      shift
+      ;;
     -c|--close)
-      op="close"
+      ops="$ops close"
       shift
       ;;
     -m|--minimize)
-      op="minimize"
+      ops="$ops minimize"
       shift
       ;;
     -M|--maximize)
-      op="maximize"
+      ops="$ops maximize"
       shift
       ;;
     -g|--geometry)
+      ops="$ops geometry"
       geometry="$2"
       shift 2
       ;;
@@ -85,8 +97,13 @@ while [[ "$DONE" == false ]]; do
       shift 2
       ;;
     -f|--fullscreen)
-      op="fullscreen"
+      ops="$ops fullscreen"
       shift
+      ;;
+    -k|--keys)
+      ops="$ops send_keys"
+      keys="$2"
+      shift 2
       ;;
     --)
       DONE=true
@@ -95,13 +112,21 @@ while [[ "$DONE" == false ]]; do
   esac
 done
 
+if [[ -z "$ops" ]]; then
+  ops=" minimize "
+fi
 
 windows=($1)
-focused="$2"
+if [[ "$#" == 1 ]]; then
+  focused="$1"
+else
+  focused="$2"
+fi
 
 if [[ -z "$windows" ]]; then
   if [[ -n "$run" ]]; then
-    # make stdout and stderr closeable on exiting from this script
+    # make stdout and stderr closeable on exiting from this script, without HUPing
+    # the child process
     setsid -w $run </dev/null >/dev/null 2>/dev/null &
     PID=$!
     if [[ -n "$action" ]]; then
@@ -122,6 +147,9 @@ if [[ -z "$windows" ]]; then
             if [[ -n "$geometry" ]]; then
               echo geometry: $win_id "$geometry"
             fi
+            if [[ -n "$keys" ]]; then
+              echo send_keys: $win_id "$keys"
+            fi
             echo bye
             break
             ;;
@@ -131,12 +159,24 @@ if [[ -z "$windows" ]]; then
       done
     fi
   fi
-elif [[ -z "$focused" ]]; then
-  echo activate:"$windows" && confirm &&
-    echo raise:"$windows" && confirm &&
-    echo focus:"$windows" && confirm
-elif [[ " ${windows[@]} " =~ " $focused " ]]; then
-  echo $op:"$focused" && confirm
+elif [[ -n "$focused" && " ${windows[@]} " == *" $focused "* ]]; then
+  for op in $ops; do
+    case "$op" in
+      geometry)
+        echo geometry: "$focused $geometry" && confirm
+        ;;
+      send_keys)
+        echo send_keys: "$focused $keys" && confirm
+        ;;
+      minimize|maximize|close|fullscreen|activate)
+        echo $op: "$focused" && confirm
+        ;;
+      *)
+        echo "unhandled operation: '$op'" >&2
+        exit 1
+        ;;
+    esac
+  done
 else
   echo activate:"$windows" && confirm &&
     echo raise:"$windows" && confirm &&
