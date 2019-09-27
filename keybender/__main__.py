@@ -7,6 +7,7 @@ import sys
 import os
 import argparse
 import socket
+import traceback
 
 """
 argument parser
@@ -123,6 +124,7 @@ class Director:
                 self.cfg = new_cfg
                 event_loop.quit()
         except Exception as e:
-            print(e, file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            #print(e, file=sys.stderr)
 
 Director().main()
